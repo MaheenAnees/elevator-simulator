@@ -15,7 +15,6 @@ class Ui():
         self.elevator = elevator
         self.current_floor = self.elevator.get_current_floor()
         self.root = master
-        self.dist_floor = None
         self.up_buttons = {}
         self.down_buttons = {}
         self.dist_floor_button = {}
@@ -27,15 +26,13 @@ class Ui():
         self.elevator_frame.pack() 
         self.button_box_frame = {}
         self.number_of_floors = self.elevator.number_of_floors
-        self.current_floor = IntVar()
-        self.current_floor.set(self.elevator.get_current_floor()) 
-        print("elavtor started in floor." + str(self.current_floor.get())) 
+        self.current_floor = self.elevator.get_current_floor()
+        print("elavtor started in floor." + str(self.current_floor)) 
         
     #update the current floor in ui 
     def update(self):
-        self.current_floor = elevator.get_current_floor()
-        #time.sleep(0.5)
-        self.root.after(500, self.update_widgets)
+        self.current_floor = self.elevator.get_current_floor()
+        self.root.after(self.elevator.travel_speed, self.update_widgets)
 
     #Initial ui widgets
     def basic_ui(self): 
@@ -75,6 +72,7 @@ class Ui():
     #change lights on and off  
     def light(self):
         if self.elevator.button_light:
+            #changing background color of button
             print("Button lights on")
             self.clicked_button.configure(bg="white")
             self.clicked_button.configure(fg="black")
@@ -82,60 +80,66 @@ class Ui():
             print("Button lights off")
             self.clicked_button.configure(bg="black")
             self.clicked_button.configure(fg="white")
-    
+          
+        
     #handle door opens and close 
     def door(self):
-        if self.elevator.door_open:
-            print("door opens")
-            self.current_frame.configure(bg="white")
-            #set the flag to false to close it
-            self.elevator.door_open = False
-        else:
-            print("door closes")
-            self.current_frame.configure(bg="blue")
-    
+        self.current_frame.configure(bg="white")    
+        print("door opens")
+        self.root.after(300, lambda: self.current_frame.configure(bg="blue"))
+        print("door closes")
+        print("###############")
+
     #handle button clicks 
     def call_elevator(self, dist, text):
-        if self.elevator.button_light:
-            #checking if the button is already on
-            #it means that the elevator is going somewhere
-            #this will start anew thread of elevator travel
-            if self.currentFloor <= dist < self.dist_floor and text == "UP": 
-                thread = threading.Thread(target=self.elevator.move_elevator, args=(dist, self.elevator))
-                thread.daemon = True
-                thread.start()
-            elif self.dist_floor <= dist < self.current_floor and text == "DOWN":
-                thread = threading.Thread(target=self.elevator.move_elevator, args=(dist, self.elevator))
-                thread.daemon = True
-                thread.start() 
+        #boolean flag status for light
+        self.elevator.button_light = True
+        #saving the current object of button
+        self.current_frame = self.elevator_box_frame[dist]
+        #call the light function, pass it the button that is clicked
+        if(text=="UP"):
+            self.clicked_button = self.up_buttons[dist]
+        elif(text=="DOWN"):
+            self.clicked_button = self.down_buttons[dist]
         else:
-            self.dist_floor = dist
-            #boolean flag status for light
-            self.elevator.button_light = True
-            #saving the current object of button
-            self.current_frame = self.elevator_box_frame[dist]
-            #call the light function, pass it 
-            #the right button to light up
-            if(text=="UP"):
-                self.clicked_button = self.up_buttons[dist]
-            elif(text=="DOWN"):
-                self.clicked_button = self.down_buttons[dist]
-            else:
-                self.clicked_button = self.dist_floor_button[dist]
-            self.light()
+            self.clicked_button = self.dist_floor_button[dist]
+        self.light()
+        #starting the main engine from the elevator class
+        
+        #state of the elevator whether is it tarveling or not
+        if not self.elevator.traveling_state:
+            #this should be the first ever call
+            #or after idle time
+            #append to the list if it's empty
             #starting the main engine from the elevator class
-            self.elevator.move_elevator(dist, self.elevator)
-            self.root.after(500, self.light)
-            self.root.after(500, self.door) 
-            self.root.after(1000, self.door)
+            self.elevator.move_elevator(dist)
+            print("Distination "+str(dist))
+            #change status to true, so next calls is added to the list
+            self.elevator.traveling_state = True
+        else:
+            pass
+
+        self.on_arrival()
     
+    #open, close door, turn off light
+    def on_arrival(self):
+       self.root.after(self.elevator.travel_speed, self.light)
+       self.root.after(self.elevator.travel_speed, self.door)
+       self.elevator.traveling_state = False
+
 class Elevator():  
     def __init__(self):
+        self.traveling_state = False
         self.number_of_floors = 7
+        self.list_of_dist_floors=[]
         #idle time 120 seconds
         self.idle_time = 120 
         #start value for direction
         self.direction = None
+        #elevator speed moving to floor 1 sec
+        self.travel_speed = 2000
+        #elevator door open/close timing 1 sec
+        self.door_time = 1000
         #assume the starting floor is random
         self.__current_floor = randint(0, self.number_of_floors)
         #last activity the elevator done
@@ -147,19 +151,13 @@ class Elevator():
         self.new_thread = False
         self.run_time_thread()
         
-        
+
     # run the thread of idle time on background
     def run_time_thread(self):
         if(self.get_current_floor() != 4):
             thread = threading.Thread(target=self.idle_timer, args=())
             thread.daemon = True
             thread.start()
-    
-    def light(self):
-        if(self.button_light):
-            print("light is on")
-        else:
-            print("light is off")
     
     # when the elevator is idle for 2 minutes
     def idle_timer(self):
@@ -178,7 +176,7 @@ class Elevator():
             else:
                 time.sleep(0.1)  
 
-    #access modeifier for time
+    #access modifier for last activity
     def set_last_activity(self, time):
         self.__last_activity = time 
     def get_last_activity(self):
@@ -195,82 +193,55 @@ class Elevator():
     def get_current_floor(self):
         return self.__current_floor
 
-    # elevator functions
-    def move_elevator(self, dist_floor, elevator):
-        difference = self.calculate_moving_difference(dist_floor)
-        if difference > 0: 
-            self.direction = "UP"
-            print("Elevator goes " + self.direction)
-            for i in range(1, difference+1):
-                elevator.set_current_floor(elevator.get_current_floor()+1)
-                print("Elevator in floor."+ str(elevator.get_current_floor()))
-                ui.update()    
-            print("Elevator reaches floor."+str(elevator.get_current_floor()))
-            #ui.basic_ui()
-        elif difference < 0:
-            self.direction = "DOWN"
-            print("Elevator goes " + self.direction)
-            for i in range(1, difference*-1+1):
-                elevator.set_current_floor(elevator.get_current_floor()-1)
-                print("Elevator in floor."+ str(elevator.get_current_floor()))
-                ui.update()
-            print("Elevator reaches floor."+str(elevator.get_current_floor()))
-        else:
-            elevator.set_current_floor(elevator.get_current_floor())
-            print("Elevator is here already")
+    #this function travels from current to distintion
+    def move_elevator(self, dist):
+        self.list_of_dist_floors.append(dist)
+        for dist_floor in self.list_of_dist_floors:
+            difference = self.calculate_moving_difference(dist_floor)
+            if difference > 0: 
+                self.direction = "UP"
+                print("Elevator goes " + self.direction)
+                for i in range(1, difference+1):
+                    self.set_current_floor(self.get_current_floor()+1)
+                    self.add_floors()
+                    print("Elevator in floor."+ str(self.get_current_floor()))  
+                print("Elevator reaches floor."+str(self.get_current_floor()))
+                #ui.basic_ui()
+            elif difference < 0:
+                self.direction = "DOWN"
+                print("Elevator goes " + self.direction)
+                for i in range(1, difference*-1+1):
+                    elevator.set_current_floor(self.get_current_floor()-1)
+                    self.add_floors()
+                    print("Elevator in floor."+ str(self.get_current_floor()))
+                    #ui.update()
+                print("Elevator reaches floor."+str(self.get_current_floor()))
+            else:
+                elevator.set_current_floor(self.get_current_floor())
+                print("Elevator is here already")
             ui.update()
-
+            #remove the first distnation floor from the list
+            self.list_of_dist_floors.remove(dist_floor)
+            #change button light and door flags
+            self.button_light = False
         #run the background idle time again
         #killing old idle time thread
         self.new_thread = True
         time.sleep(0.1)
         self.new_thread = False
         self.run_time_thread() 
-        #change button light and door flags
-        self.button_light = False
-        self.door_open = True
-
-    # increase and decrease number of passengers as we stops
-    def passengers(self):
-        if(self.insideButton):
-            self.numberOfPassengers = self.numberOfPassengers - 1
-            print("passenger get out")
-        elif(self.outsideButton):
-            self.numberOfPassengers = self.numberOfPassengers + 1
-            print("passenger get in")
-        return(self.numberOfPassengers) 
 
 
-
-class Floor():
-    def __init__( self, fromFloor, toFloor ):
-        self.fromFloor = fromFloor
-        self.toFloor = toFloor
-        self.direction = ""
-        self.__currentFloor = 4
-
-    # send the current and requested floor to the engine
-    def send_floors(self):
-        Elevator.fromFloor = self.fromFloor
-        Elevator.toFloor = self.toFloor
-        Elevator.currentFloor = self.__currentFloor 
-    
-    def set_current_floor(self, value):
-        self.__currentFloor = value
-    
-    def get_current_floor(self):
-        return self.__currentFloor
-
-
-
-class Passengers:
-    def __init__(self, numberOfPassengers ):
-        self.numberOfPassengers = numberOfPassengers 
-
-    def send_passengers(self):
-        Elevator.numberOfPassengers = self.numberOfPassengers
-
-
+    #checks if there are any calls on the way and add it to the list
+    def add_floors(self):
+        if ui.dist_floor_button[self.get_current_floor()].cget('bg') == "white" or ui.up_buttons[self.get_current_floor()].cget('bg') == "white":
+            #if there is calls from outside, stop the elevator
+            ui.update()
+        if ui.down_buttons[self.get_current_floor()].cget('bg') == "white":
+            #if there is a requested floor in the trip
+            ui.update()
+        
+        
 if __name__ == "__main__":
     elevator = Elevator()
     root = Tk()
@@ -280,4 +251,28 @@ if __name__ == "__main__":
     ui.update()
     root.mainloop()
 
-#ref:http://www.diva-portal.se/smash/get/diva2:811554/FULLTEXT01.pdf
+
+#class Floor():
+#    def __init__( self, fromFloor, toFloor ):
+#        self.fromFloor = fromFloor
+#        self.toFloor = toFloor
+#        self.direction = ""
+#        self.__currentFloor = 4
+#
+#    # send the current and requested floor to the engine
+#    def send_floors(self):
+#        Elevator.fromFloor = self.fromFloor
+#        Elevator.toFloor = self.toFloor
+#        Elevator.currentFloor = self.__currentFloor 
+#    
+#    def set_current_floor(self, value):
+#        self.__currentFloor = value
+#    
+#    def get_current_floor(self):
+#        return self.__currentFloor
+#
+#class Passengers():
+#    def __init__(self, numberOfPassengers ):
+#        self.numberOfPassengers = numberOfPassengers
+#    def send_passengers(self):
+#        Elevator.numberOfPassengers = self.numberOfPassengers
